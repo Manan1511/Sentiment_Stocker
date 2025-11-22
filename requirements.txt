@@ -1,0 +1,8 @@
+
+streamlit
+yfinance
+nltk
+plotly
+GoogleNews
+beautifulsoup4
+lxml

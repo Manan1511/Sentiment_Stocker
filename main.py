@@ -8,11 +8,13 @@ from datetime import datetime, timedelta
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from GoogleNews import GoogleNews
+import finnhub
 import random
 from collections import Counter
 from io import BytesIO
 import numpy as np
 import re
+import time
 import requests
 from bs4 import BeautifulSoup
 
@@ -30,6 +32,11 @@ except LookupError:
     nltk.download('vader_lexicon', quiet=True)
 
 sia = SentimentIntensityAnalyzer()
+
+# Initialize Finnhub Client
+# Get your free API key from: https://finnhub.io/register
+FINNHUB_API_KEY = "d4ps1npr01qjpnb18tdgd4ps1npr01qjpnb18te0"
+finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 
 # --- 2. DATA CONSTANTS ---
 
@@ -161,6 +168,39 @@ def fetch_stock_data(ticker, period="1mo"):
         return df, stock.info
     except: return None, None
 
+@st.cache_data(ttl=300)
+def fetch_news_data_finnhub(ticker, limit=15):
+    """Fetch financial news using Finnhub API"""
+    news_data = []
+    try:
+        # Get date range (last 7 days)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        # Format dates for Finnhub (YYYY-MM-DD)
+        from_date = start_date.strftime('%Y-%m-%d')
+        to_date = end_date.strftime('%Y-%m-%d')
+        
+        # Fetch company news
+        news = finnhub_client.company_news(ticker, _from=from_date, to=to_date)
+        
+        for item in news[:limit]:
+            news_data.append({
+                'title': item['headline'],
+                'link': item['url'],
+                'source': item['source'],
+                'date': datetime.fromtimestamp(item['datetime']).strftime('%Y-%m-%d %H:%M'),
+                'summary': item.get('summary', ''),
+                'sentiment': item.get('sentiment', 0)
+            })
+        
+        time.sleep(0.1)  # Small delay to stay under rate limit
+        
+    except Exception as e:
+        pass  # Fail silently and return empty list
+    
+    return news_data
+
 @st.cache_data(ttl=1800)
 def fetch_news_data(query, limit=15):
     """Modified to accept general query strings for Topic/Sector analysis"""
@@ -229,7 +269,8 @@ def fetch_news_data(query, limit=15):
             print(f"Reddit scrape error: {e}")
 
     try:
-        googlenews = GoogleNews(lang='en', period='7d') # Revert to 7d to reduce load/blocking probability?
+        time.sleep(2)  # Rate limiting
+        googlenews = GoogleNews(lang='en', period='7d')
         googlenews.search(query)
         results = googlenews.results()
         if results:
@@ -245,12 +286,23 @@ def fetch_news_data(query, limit=15):
     
     return news_data
 
-def get_sentiment_score(headlines):
+def get_sentiment_score(news_items):
+    """Calculate sentiment using Finnhub sentiment or VADER fallback"""
+    if not news_items:
+        return 0
+    
     total = 0
-    for h in headlines:
-        if h.get('title'):
-            total += sia.polarity_scores(h['title'])['compound']
-    return total / len(headlines) if headlines else 0
+    for item in news_items:
+        # Try using Finnhub sentiment first
+        if 'sentiment' in item and item['sentiment'] != 0:
+            total += item['sentiment']
+        else:
+            # Fallback to VADER on title + summary
+            text = f"{item.get('title', '')} {item.get('summary', '')}"
+            if text.strip():
+                total += sia.polarity_scores(text)['compound']
+    
+    return total / len(news_items) if news_items else 0
 
 def categorize_topics(news_items):
     """Feature 1: Tags news with specific topics"""
@@ -416,7 +468,11 @@ def main():
     if ticker:
         # Load Data
         df, info = fetch_stock_data(ticker, period)
-        news = fetch_news_data(f"{ticker}") # Relaxed query for broader results
+        
+        # Try Finnhub first, fallback to multi-source strategy
+        news = fetch_news_data_finnhub(ticker, limit=15)
+        if not news:
+            news = fetch_news_data(f"{ticker}")  # Fallback to yfinance/google/reddit
         
         if df is None:
             st.error("Stock data not found. Check ticker symbol or try a different timeframe.")
@@ -490,7 +546,10 @@ def main():
                 st.subheader("⚔️ Competitors")
                 peers = COMPETITORS.get(ticker, ['AAPL', 'MSFT', 'GOOGL'])[:3]
                 for p in peers:
-                    p_news = fetch_news_data(f"{p}", limit=5)
+                    # Try Finnhub first for competitors too
+                    p_news = fetch_news_data_finnhub(p, limit=5)
+                    if not p_news:
+                        p_news = fetch_news_data(f"{p}", limit=5)
                     p_score = get_sentiment_score(p_news)
                     p_color = "#00E676" if p_score > 0.05 else "#FF1744"
                     
@@ -508,7 +567,14 @@ def main():
                 
                 with nt1:
                     for n in news:
-                        score = sia.polarity_scores(n['title'])['compound']
+                        # Calculate individual sentiment properly
+                        if 'sentiment' in n and n['sentiment'] != 0:
+                            # Use Finnhub's sentiment score
+                            score = n['sentiment']
+                        else:
+                            # Fallback to VADER analysis on title + summary
+                            text = f"{n.get('title', '')} {n.get('summary', '')}"
+                            score = sia.polarity_scores(text)['compound'] if text.strip() else 0
                         render_news_card(n['title'], n['link'], n['source'], score)
                         
                 with nt2:
@@ -517,7 +583,8 @@ def main():
                     social_news = fetch_news_data(f"{ticker} reddit", limit=10)
                     if social_news:
                         for n in social_news:
-                            score = sia.polarity_scores(n['title'])['compound']
+                            text = f"{n.get('title', '')} {n.get('summary', '')}"
+                            score = sia.polarity_scores(text)['compound'] if text.strip() else 0
                             render_news_card(n['title'], n['link'], n['source'], score)
                     else:
                         st.info(f"No substantial social buzz found for {ticker} (Reddit scraping may be blocked).")

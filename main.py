@@ -175,6 +175,7 @@ def fetch_stock_data(ticker, period="1mo"):
         # Fetch slightly more data for SMA calculations
         hist_period = '1y' if period in ['1mo', '3mo'] else period
         df = stock.history(period=hist_period)
+        if df.empty: return None, None
         return df, stock.info
     except: return None, None
 
@@ -364,7 +365,7 @@ def main():
         news = fetch_news_data(f"{ticker} stock") # Updated to search generic string
         
         if df is None:
-            st.error("Stock not found. Check ticker symbol.")
+            st.error("Stock data not found. Check ticker symbol or try a different timeframe.")
             return
 
         # KPIs

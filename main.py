@@ -91,7 +91,7 @@ if not st.session_state.disclaimer_accepted:
     # Center the button
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        if st.button("✅ I Agree and Accept the Risks", type="primary", use_container_width=True):
+        if st.button("I Agree and Accept the Risks", type="primary", use_container_width=True):
             st.session_state.disclaimer_accepted = True
             st.rerun()
     
@@ -236,10 +236,19 @@ def fetch_stock_data(ticker, period="1mo"):
         stock = yf.Ticker(ticker)
         # Fetch slightly more data for SMA calculations
         hist_period = '1y' if period in ['1mo', '3mo'] else period
-        df = stock.history(period=hist_period)
+        
+        # USE yf.download() as it is more robust than stock.history() currently
+        df = yf.download(ticker, period=hist_period, progress=False)
+        
+        # Flatten multi-index columns if present (common in new yfinance)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
         if df.empty: return None, None
         return df, stock.info
-    except: return None, None
+    except Exception as e:
+        print(f"Error fetching stock data: {e}") 
+        return None, None
 
 @st.cache_data(ttl=300)
 def fetch_news_data_finnhub(ticker, limit=15):
@@ -404,7 +413,7 @@ def render_kpi(label, value, delta=None):
     </div>
     """, unsafe_allow_html=True)
 
-def render_news_card(title, link, source, score):
+def render_news_card(title, link, source, score, date):
     color = "#00E676" if score > 0.05 else ("#FF1744" if score < -0.05 else "#B0BEC5")
     st.markdown(f"""
     <div class="news-card" style="border-left: 4px solid {color};">
@@ -412,7 +421,7 @@ def render_news_card(title, link, source, score):
             {title}
         </a>
         <div class="news-meta">
-            <span>{source}</span> • <span style="color:{color}; font-weight:bold;">Score: {score:.2f}</span>
+            <span>{source} • {date}</span> • <span style="color:{color}; font-weight:bold;">Score: {score:.2f}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -560,6 +569,10 @@ def main():
         
         sent_score = get_sentiment_score(news)
         
+        # Ticker Name Display
+        long_name = info.get('longName', ticker) if info else ticker
+        st.markdown(f"<h3 style='text-align: center; color: #4F8BF9; margin-bottom: 20px;'>{long_name}</h3>", unsafe_allow_html=True)
+
         # --- TOP KPI ROW ---
         k1, k2, k3, k4 = st.columns(4)
         with k1: render_kpi("Current Price", f"₹{curr_price:.2f}", delta)
@@ -581,10 +594,11 @@ def main():
             # Fundamentals Row (Moved here from Sidebar)
             st.markdown("### 🏢 Key Fundamentals")
             if info:
-                f1, f2, f3 = st.columns(3)
+                f1, f2, f3, f4 = st.columns(4)
                 f1.metric("P/E Ratio", f"{info.get('trailingPE', 0):.2f}")
                 f2.metric("52W High", f"₹{info.get('fiftyTwoWeekHigh', 0):.2f}")
                 f3.metric("52W Low", f"₹{info.get('fiftyTwoWeekLow', 0):.2f}")
+                f4.metric("P/B Ratio", f"{info.get('priceToBook', 0):.2f}")
             else:
                 st.warning("No fundamental data.")
 
@@ -648,7 +662,7 @@ def main():
                             # Fallback to VADER analysis on title + summary
                             text = f"{n.get('title', '')} {n.get('summary', '')}"
                             score = sia.polarity_scores(text)['compound'] if text.strip() else 0
-                        render_news_card(n['title'], n['link'], n['source'], score)
+                        render_news_card(n['title'], n['link'], n['source'], score, n.get('date', 'Recent'))
                         
                 with nt2:
                     st.caption(f"Showing discussions for {ticker} from Reddit, Forums, etc.")
@@ -658,7 +672,7 @@ def main():
                         for n in social_news:
                             text = f"{n.get('title', '')} {n.get('summary', '')}"
                             score = sia.polarity_scores(text)['compound'] if text.strip() else 0
-                            render_news_card(n['title'], n['link'], n['source'], score)
+                            render_news_card(n['title'], n['link'], n['source'], score, n.get('date', 'Recent'))
                     else:
                         st.info(f"No substantial social buzz found for {ticker} (Reddit scraping may be blocked).")
 

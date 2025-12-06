@@ -21,7 +21,7 @@ from bs4 import BeautifulSoup
 # --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="Sentiment Stocker | Pro Terminal",
-    page_icon="⚡",
+    page_icon="app_logo.png",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -155,6 +155,11 @@ TOPIC_KEYWORDS = {
     "📦 Product": ['launch', 'reveal', 'defect', 'recall', 'iphone', 'model', 'upgrade', 'delay', 'chip'],
     "🌍 Macro": ['inflation', 'fed', 'rate', 'tax', 'jobs', 'recession', 'policy', 'economy', 'interest'],
     "🤝 M&A": ['acquire', 'merger', 'buyout', 'deal', 'takeover', 'stake']
+}
+
+SOURCE_TIERS = {
+    1: ['bloomberg', 'reuters', 'wsj', 'financial times', 'cnbc', 'yahoo finance'],
+    2: ['marketwatch', 'benzinga', 'the motley fool', 'business insider', 'techcrunch']
 }
 
 # --- 3. CUSTOM STYLING (UI FIXES) ---
@@ -423,13 +428,23 @@ def render_kpi(label, value, delta=None):
 
 def render_news_card(title, link, source, score, date):
     color = "#00E676" if score > 0.05 else ("#FF1744" if score < -0.05 else "#B0BEC5")
+    
+    # Credibility Logic
+    source_lower = source.lower()
+    if any(k in source_lower for k in SOURCE_TIERS[1]):
+        tier_badge = '<span style="color:#00E676; font-weight:bold;">🛡️ Verified</span>'
+    elif any(k in source_lower for k in SOURCE_TIERS[2]):
+        tier_badge = '<span style="color:#B0BEC5;">ℹ️ Standard</span>'
+    else:
+        tier_badge = '<span style="color:#FF9100;">⚠️ Unverified</span>'
+
     st.markdown(f"""
     <div class="news-card" style="border-left: 4px solid {color};">
         <a href="{link}" target="_blank" rel="noreferrer noopener" class="news-link">
             {title}
         </a>
         <div class="news-meta">
-            <span>{source} • {date}</span> • <span style="color:{color}; font-weight:bold;">Score: {score:.2f}</span>
+            <span>{source} • {tier_badge} • {date}</span> • <span style="color:{color}; font-weight:bold;">Score: {score:.2f}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -527,6 +542,7 @@ def render_heatmap():
 def main():
     # Sidebar (Purely Control Panel)
     with st.sidebar:
+        st.image("app_logo.png", width=50)
         st.markdown("## ⚙️ Control Panel")
         mode = st.radio("View Mode", ["🔍 Analysis", "🗺️ Market Heatmap"], index=0)
         st.markdown("---")
@@ -546,7 +562,13 @@ def main():
     # Header
     c1, c2 = st.columns([3, 1])
     with c1:
-        st.markdown('<div class="main-header">Sentiment Stocker ⚡</div>', unsafe_allow_html=True)
+        # Title with Logo
+        lc1, lc2 = st.columns([0.08, 0.92], gap="small")
+        with lc1:
+            st.image("app_logo.png", width=60)
+        with lc2:
+            st.markdown('<div class="main-header">Sentiment Stocker</div>', unsafe_allow_html=True)
+            
         st.caption("Advanced Financial Intelligence Terminal")
     
     # MODE: MARKET HEATMAP
@@ -639,6 +661,13 @@ def main():
 
         # TAB 3: NEWS & PEERS
         with tab3:
+            with st.expander("ℹ️ How is Source Credibility Calculated?"):
+                st.markdown("""
+                *   **🛡️ Verified (Tier 1):** Established financial institutions and major global wire services (e.g., Bloomberg, Reuters, WSJ).
+                *   **ℹ️ Standard (Tier 2):** Widely recognized market news platforms and dedicated financial blogs (e.g., MarketWatch, Benzinga).
+                *   **⚠️ Social / Unverified (Tier 3):** Social media discussions, aggregators, forums (e.g., Reddit, Twitter), or unrecognized sources.
+                """)
+            
             c_peers, c_news = st.columns([1, 2])
             
             with c_peers:

@@ -13,6 +13,8 @@ from collections import Counter
 from io import BytesIO
 import numpy as np
 import re
+import requests
+from bs4 import BeautifulSoup
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
@@ -41,7 +43,8 @@ COMPETITORS = {
     'INFY.NS': ['TCS.NS', 'WIPRO.NS', 'TECHM.NS'],
     'RELIANCE.NS': ['ADANIENT.NS', 'ONGC.NS', 'TATASTEEL.NS'],
     'HDFCBANK.NS': ['SBIN.NS', 'ICICIBANK.NS', 'AXISBANK.NS'],
-    'TATAMOTORS.NS': ['MARUTI.NS', 'M&M.NS', 'ASHOKLEY.NS']
+    'TATAMOTORS.NS': ['MARUTI.NS', 'M&M.NS', 'ASHOKLEY.NS'],
+    'TATASTEEL.NS': ['JSWSTEEL.NS', 'HINDALCO.NS', 'SAIL.NS']
 }
 
 # Feature 2: Map Sectors to Supply Chain Dependencies
@@ -52,7 +55,17 @@ SECTOR_MAP = {
     'Energy': ['Crude Oil', 'Natural Gas', 'OPEC'],
     'Financial': ['Interest Rates', 'Housing Market'],
     'Healthcare': ['Biotech', 'Insurance'],
-    'Utilities': ['Natural Gas', 'Coal']
+    'Utilities': ['Natural Gas', 'Coal'],
+    'Basic Materials': ['Iron Ore', 'Coal', 'Shipping']
+}
+
+DEPENDENCY_TICKERS = {
+    'Semiconductors': 'SMH', 'Cloud Computing': 'SKYY', 'AI Chips': 'SOXX',
+    'Lithium': 'LIT', 'Steel': 'SLX', 'Crude Oil': 'USO',
+    'Natural Gas': 'UNG', 'OPEC': 'XLE', 'Interest Rates': '^TNX',
+    'Housing Market': 'XHB', 'Biotech': 'IBB', 'Insurance': 'KIE',
+    'Coal': 'ARCH', 'Global Markets': '^GSPC', 'Oil': 'USO',
+    'Iron Ore': 'RIO', 'Shipping': 'BOAT' # BOAT is generic, maybe BDRY? Let's use BDRY or just RIO/VALE for Iron Ore
 }
 
 # Feature 1: Keywords for Topic Modeling
@@ -83,47 +96,15 @@ st.markdown("""
         color: white;
         text-align: center;
         transition: transform 0.2s;
+        height: 140px; /* Fixed height for uniformity */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     .metric-container:hover {
         transform: translateY(-2px);
         border-color: #667eea;
     }
-    .metric-label {
-        font-size: 0.9rem;
-        color: #A0A0A0;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 5px;
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #FFFFFF;
-    }
-    .metric-delta {
-        font-size: 0.9rem;
-        font-weight: 600;
-        margin-top: 5px;
-    }
-    
-    /* Tabs Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: transparent;
-        border-radius: 4px 4px 0px 0px;
-        color: #A0A0A0;
-        font-weight: 600;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: transparent;
-        color: #667eea;
-        border-bottom: 2px solid #667eea;
-    }
-
     /* News Feed Styling */
     .news-card {
         background-color: #1A1C24;
@@ -132,6 +113,7 @@ st.markdown("""
         border-radius: 8px;
         margin-bottom: 10px;
         transition: background-color 0.3s;
+        min-height: 100px; /* Minimum height for uniformity */
     }
     .news-card:hover {
         background-color: #252836;
@@ -183,8 +165,71 @@ def fetch_stock_data(ticker, period="1mo"):
 def fetch_news_data(query, limit=15):
     """Modified to accept general query strings for Topic/Sector analysis"""
     news_data = []
+    # Strategy 1: YFinance (Best for "Credible News" if query is a ticker)
+    # Check if query looks like a ticker (e.g., AAPL, RELIANCE.NS, ^GSPC, BRK-B)
+    if not " " in query and len(query) < 15:
+        try:
+            t = yf.Ticker(query)
+            yf_news = t.news
+            if yf_news:
+                for n in yf_news:
+                    # Handle nested structure (yfinance update)
+                    title = n.get('title')
+                    link = n.get('link')
+                    publisher = n.get('publisher')
+                    
+                    if not title and 'content' in n:
+                        c = n['content']
+                        title = c.get('title')
+                        # Try to find link in content
+                        if not link:
+                            link = c.get('canonicalUrl', {}).get('url') if isinstance(c.get('canonicalUrl'), dict) else c.get('clickThroughUrl', {}).get('url')
+                        # Try to find publisher in content
+                        if not publisher:
+                            publisher = c.get('provider', {}).get('displayName') if isinstance(c.get('provider'), dict) else "Yahoo Finance"
+
+                    if not title: continue # Skip if no title
+                    
+                    ts = n.get('providerPublishTime', 0)
+                    date_str = datetime.fromtimestamp(ts).strftime('%Y-%m-%d') if ts else 'Recent'
+                    news_data.append({
+                        'title': title,
+                        'link': link or f"https://finance.yahoo.com/news/{n.get('id', '')}.html",
+                        'source': publisher or 'Yahoo Finance',
+                        'date': date_str
+                    })
+                return news_data[:limit]
+        except: pass
+
+    # Strategy 2: Google News (Fallback & Complex Queries like "MSFT reddit")
+    # UPDATED: If query contains "reddit", try direct Reddit scraping text search fallback
+    if "reddit" in query.lower():
+        try:
+             # Extract ticker from query (e.g., "AAPL reddit" -> "AAPL")
+            search_term = query.replace("reddit", "").strip()
+            # Simple reddit search scrape (old reddit is easier to parse)
+            url = f"https://old.reddit.com/search?q={search_term}&sort=new"
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, 'html.parser')
+                # Find search results
+                results = soup.find_all('div', class_='search-result-link')
+                for res in results[:limit]:
+                    title_tag = res.find('a', class_='search-title')
+                    if title_tag:
+                        news_data.append({
+                            'title': title_tag.text,
+                            'link': title_tag['href'] if title_tag['href'].startswith('http') else f"https://reddit.com{title_tag['href']}",
+                            'source': 'Reddit',
+                            'date': 'Recent'
+                        })
+                if news_data: return news_data
+        except Exception as e:
+            print(f"Reddit scrape error: {e}")
+
     try:
-        googlenews = GoogleNews(lang='en', period='7d')
+        googlenews = GoogleNews(lang='en', period='7d') # Revert to 7d to reduce load/blocking probability?
         googlenews.search(query)
         results = googlenews.results()
         if results:
@@ -195,14 +240,16 @@ def fetch_news_data(query, limit=15):
                     'source': item.get('media', 'Google News'),
                     'date': item.get('date', 'Recent')
                 })
-    except: pass
+    except Exception as e:
+        print(f"Google News error: {e}")
     
     return news_data
 
 def get_sentiment_score(headlines):
     total = 0
     for h in headlines:
-        total += sia.polarity_scores(h['title'])['compound']
+        if h.get('title'):
+            total += sia.polarity_scores(h['title'])['compound']
     return total / len(headlines) if headlines else 0
 
 def categorize_topics(news_items):
@@ -255,7 +302,9 @@ def render_ripple_effects(sector):
     
     for i, dep in enumerate(dependencies):
         with cols[i]:
-            dep_news = fetch_news_data(f"{dep} market news", limit=5)
+            # Use specific ticker if available, otherwise fallback to text search (which might fail)
+            query_term = DEPENDENCY_TICKERS.get(dep, dep)
+            dep_news = fetch_news_data(query_term, limit=5)
             score = get_sentiment_score(dep_news)
             
             color = "#00E676" if score > 0.05 else "#FF1744" if score < -0.05 else "#A0A0A0"
@@ -346,6 +395,11 @@ def main():
             st.caption("Press Enter to update")
         else:
             ticker = None
+            
+        st.markdown("---")
+        if st.button("🔄 Refresh Data"):
+            st.cache_data.clear()
+            st.rerun()
     
     # Header
     c1, c2 = st.columns([3, 1])
@@ -362,7 +416,7 @@ def main():
     if ticker:
         # Load Data
         df, info = fetch_stock_data(ticker, period)
-        news = fetch_news_data(f"{ticker} stock") # Updated to search generic string
+        news = fetch_news_data(f"{ticker}") # Relaxed query for broader results
         
         if df is None:
             st.error("Stock data not found. Check ticker symbol or try a different timeframe.")
@@ -389,7 +443,7 @@ def main():
         st.write("") # Spacer
 
         # --- TABS LAYOUT ---
-        tab1, tab2, tab3 = st.tabs(["📈 Chart & Technicals", "🧠 Sentiment Lab", "📰 News & Peers"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📈 Chart & Technicals", "🧠 Sentiment Lab", "📰 News & Peers", "🔗 URL Scanner"])
 
         # TAB 1: CHART
         with tab1:
@@ -436,7 +490,7 @@ def main():
                 st.subheader("⚔️ Competitors")
                 peers = COMPETITORS.get(ticker, ['AAPL', 'MSFT', 'GOOGL'])[:3]
                 for p in peers:
-                    p_news = fetch_news_data(f"{p} stock", limit=5)
+                    p_news = fetch_news_data(f"{p}", limit=5)
                     p_score = get_sentiment_score(p_news)
                     p_color = "#00E676" if p_score > 0.05 else "#FF1744"
                     
@@ -449,9 +503,66 @@ def main():
 
             with c_news:
                 st.subheader("Recent Headlines")
-                for n in news:
-                    score = sia.polarity_scores(n['title'])['compound']
-                    render_news_card(n['title'], n['link'], n['source'], score)
+                
+                nt1, nt2 = st.tabs(["📰 Credible News", "💬 Social Buzz"])
+                
+                with nt1:
+                    for n in news:
+                        score = sia.polarity_scores(n['title'])['compound']
+                        render_news_card(n['title'], n['link'], n['source'], score)
+                        
+                with nt2:
+                    st.caption(f"Showing discussions for {ticker} from Reddit, Forums, etc.")
+                    # Fetch "Social" news
+                    social_news = fetch_news_data(f"{ticker} reddit", limit=10)
+                    if social_news:
+                        for n in social_news:
+                            score = sia.polarity_scores(n['title'])['compound']
+                            render_news_card(n['title'], n['link'], n['source'], score)
+                    else:
+                        st.info(f"No substantial social buzz found for {ticker} (Reddit scraping may be blocked).")
+
+        # TAB 4: URL SENTIMENT SCANNER
+        with tab4:
+            st.subheader("🔗 URL Sentiment Scanner")
+            st.caption("Paste any article link to analyze its specific sentiment.")
+            
+            url_col1, url_col2 = st.columns([3, 1])
+            with url_col1:
+                url_input = st.text_input("Article URL", placeholder="https://example.com/article...", key="url_scanner_in")
+            with url_col2:
+                st.write("") # Alignment spacer
+                analyze_btn = st.button("Analyze URL", key="url_scanner_btn")
+            
+            if analyze_btn and url_input:
+                try:
+                    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+                    response = requests.get(url_input, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.text, 'html.parser')
+                        # Extract paragraphs; crude but effective for general articles
+                        paragraphs = soup.find_all('p')
+                        text_content = " ".join([p.get_text() for p in paragraphs])
+                        
+                        if len(text_content) > 100:
+                            url_score = sia.polarity_scores(text_content)['compound']
+                            u_color = "#00E676" if url_score > 0.05 else "#FF1744" if url_score < -0.05 else "#A0A0A0"
+                            u_label = "POSITIVE" if url_score > 0.05 else "NEGATIVE" if url_score < -0.05 else "NEUTRAL"
+                            
+                            st.markdown(f'''
+                            <div style="background:#262730; padding:20px; border-radius:10px; border-left:5px solid {u_color};">
+                                <h3 style="margin:0; color:white;">Sentiment: <span style="color:{u_color}">{u_label}</span> ({url_score:.2f})</h3>
+                                <p style="color:#A0A0A0; margin-top:5px;">Analyzed {len(text_content)} characters from the article.</p>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                        else:
+                            st.error("Could not extract enough text from this URL. It might be behind a paywall or Javascript-rendered.")
+                    else:
+                        st.error(f"Failed to fetch URL (Status Code: {response.status_code})")
+                except Exception as e:
+                    st.error(f"Error processing URL: {str(e)}")
+
+
 
         # Excel Export (Bottom)
         st.markdown("---")

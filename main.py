@@ -230,6 +230,14 @@ def clean_google_link(url):
     if "&ved=" in url: return url.split("&ved=")[0]
     return url
 
+def get_currency_symbol(currency_code):
+    """Map currency code to symbol"""
+    currency_map = {
+        'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹',
+        'JPY': '¥', 'CNY': '¥', 'AUD': 'A$', 'CAD': 'C$'
+    }
+    return currency_map.get(currency_code, currency_code or '$')
+
 @st.cache_data(ttl=3600)
 def fetch_stock_data(ticker, period="1mo"):
     try:
@@ -451,7 +459,7 @@ def render_ripple_effects(sector):
             </div>
             """, unsafe_allow_html=True)
 
-def plot_advanced_timeline(df, current_sentiment, period):
+def plot_advanced_timeline(df, current_sentiment, period, currency_symbol='$'):
     # Slice data for view
     if period == '1mo': view_df = df.tail(30)
     elif period == '6mo': view_df = df.tail(180)
@@ -484,7 +492,7 @@ def plot_advanced_timeline(df, current_sentiment, period):
         template="plotly_dark",
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        yaxis=dict(title="Price (₹)", showgrid=True, gridcolor='#2E303E'),
+        yaxis=dict(title=f"Price ({currency_symbol})", showgrid=True, gridcolor='#2E303E'),
         yaxis2=dict(title="Sentiment", overlaying='y', side='right', range=[-1, 1], showgrid=False),
         height=500,
         margin=dict(l=0, r=0, t=30, b=0),
@@ -569,18 +577,22 @@ def main():
         
         sent_score = get_sentiment_score(news)
         
+        # Helper: Get Currency Symbol
+        currency_code = info.get('currency', 'USD') if info else 'USD'
+        currency_symbol = get_currency_symbol(currency_code)
+
         # Ticker Name Display
         long_name = info.get('longName', ticker) if info else ticker
         st.markdown(f"<h3 style='text-align: center; color: #4F8BF9; margin-bottom: 20px;'>{long_name}</h3>", unsafe_allow_html=True)
 
         # --- TOP KPI ROW ---
         k1, k2, k3, k4 = st.columns(4)
-        with k1: render_kpi("Current Price", f"₹{curr_price:.2f}", delta)
+        with k1: render_kpi("Current Price", f"{currency_symbol}{curr_price:.2f}", delta)
         with k2: render_kpi("Sentiment", f"{sent_score:.2f}", "(-1 to +1)")
         with k3: render_kpi("News Volume", str(len(news)), "Headlines")
         with k4: 
             mcap = info.get('marketCap', 0) if info else 0
-            render_kpi("Market Cap", f"₹{mcap/1e9:.1f}B", None)
+            render_kpi("Market Cap", f"{currency_symbol}{mcap/1e9:.1f}B", None)
 
         st.write("") # Spacer
 
@@ -589,15 +601,15 @@ def main():
 
         # TAB 1: CHART
         with tab1:
-            st.plotly_chart(plot_advanced_timeline(df, sent_score, period), use_container_width=True)
+            st.plotly_chart(plot_advanced_timeline(df, sent_score, period, currency_symbol), use_container_width=True)
             
             # Fundamentals Row (Moved here from Sidebar)
             st.markdown("### 🏢 Key Fundamentals")
             if info:
                 f1, f2, f3, f4 = st.columns(4)
                 f1.metric("P/E Ratio", f"{info.get('trailingPE', 0):.2f}")
-                f2.metric("52W High", f"₹{info.get('fiftyTwoWeekHigh', 0):.2f}")
-                f3.metric("52W Low", f"₹{info.get('fiftyTwoWeekLow', 0):.2f}")
+                f2.metric("52W High", f"{currency_symbol}{info.get('fiftyTwoWeekHigh', 0):.2f}")
+                f3.metric("52W Low", f"{currency_symbol}{info.get('fiftyTwoWeekLow', 0):.2f}")
                 f4.metric("P/B Ratio", f"{info.get('priceToBook', 0):.2f}")
             else:
                 st.warning("No fundamental data.")

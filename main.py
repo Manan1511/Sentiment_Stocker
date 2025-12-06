@@ -162,6 +162,8 @@ SOURCE_TIERS = {
     2: ['marketwatch', 'benzinga', 'the motley fool', 'business insider', 'techcrunch']
 }
 
+VERIFIED_SOURCES = ['Bloomberg', 'Reuters', 'WSJ', 'CNBC', 'Financial Times', 'Yahoo Finance']
+
 # --- 3. CUSTOM STYLING (UI FIXES) ---
 st.markdown("""
     <style>
@@ -581,10 +583,22 @@ def main():
         # Load Data
         df, info = fetch_stock_data(ticker, period)
         
+        # Smart Fetch Logic (Check Session State BEFORE fetching)
+        is_verified_only = st.session_state.get('verified_only', False)
+        fetch_limit = 50 if is_verified_only else 15
+
         # Try Finnhub first, fallback to multi-source strategy
-        news = fetch_news_data_finnhub(ticker, limit=15)
+        news = fetch_news_data_finnhub(ticker, limit=fetch_limit)
         if not news:
-            news = fetch_news_data(f"{ticker}")  # Fallback to yfinance/google/reddit
+            news = fetch_news_data(f"{ticker}", limit=fetch_limit)  # Fallback to yfinance/google/reddit
+            
+        # Apply Strict Filter if enabled
+        if is_verified_only and news:
+            original_count = len(news)
+            news = [n for n in news if any(vs.lower() in n['source'].lower() for vs in VERIFIED_SOURCES)]
+            news = news[:10]  # Keep top 10 verified
+            if not news:
+                st.toast(f"⚠️ Filtered {original_count} items. No verified news found.", icon="🕵️")
         
         if df is None:
             st.error("Stock data not found. Check ticker symbol or try a different timeframe.")
@@ -661,6 +675,9 @@ def main():
 
         # TAB 3: NEWS & PEERS
         with tab3:
+            # Strict Quality Filter Checkbox
+            st.checkbox("🛡️ Only Verified Sources", key="verified_only")
+            
             with st.expander("ℹ️ How is Source Credibility Calculated?"):
                 st.markdown("""
                 *   **🛡️ Verified (Tier 1):** Established financial institutions and major global wire services (e.g., Bloomberg, Reuters, WSJ).

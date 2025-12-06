@@ -1,11 +1,3 @@
-"""
-Sentiment Stocker v7.8 - Refined Layout
-Features: 
-- Clean Sidebar (Controls Only)
-- Fundamentals moved to Main View (PEG Ratio Removed)
-- Topic Modeling (The "Why")
-- Supply Chain Ripple Effects
-"""
 
 import streamlit as st
 import yfinance as yf

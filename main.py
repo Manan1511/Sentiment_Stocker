@@ -26,6 +26,79 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- DISCLAIMER MODAL (MUST COME BEFORE ANY OTHER UI) ---
+if 'disclaimer_accepted' not in st.session_state:
+    st.session_state.disclaimer_accepted = False
+
+if not st.session_state.disclaimer_accepted:
+    st.markdown("""
+    <style>
+    .disclaimer-box {
+        background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+        border: 2px solid #ff4b4b;
+        border-radius: 15px;
+        padding: 40px;
+        margin: 50px auto;
+        max-width: 800px;
+        box-shadow: 0 10px 40px rgba(255, 75, 75, 0.3);
+    }
+    .disclaimer-title {
+        color: #ff4b4b;
+        font-size: 2rem;
+        font-weight: 800;
+        text-align: center;
+        margin-bottom: 20px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+    .disclaimer-subtitle {
+        color: #ffaa00;
+        font-size: 1.3rem;
+        font-weight: 700;
+        margin-top: 25px;
+        margin-bottom: 10px;
+    }
+    .disclaimer-text {
+        color: #e0e0e0;
+        font-size: 1rem;
+        line-height: 1.8;
+        margin-bottom: 15px;
+    }
+    .warning-icon {
+        font-size: 3rem;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="disclaimer-box">
+        <div class="warning-icon">⚠️</div>
+        <div class="disclaimer-title">SEBI Mandatory Guidelines</div>
+        
+        Educational Purpose Only
+          
+            This platform does not provide any tips, recommendations, or financial advice.
+            All updates, posts, and discussions are purely and solely for educational and learning purposes
+            Consult a Professional Financial Advisor before making any investment decisions.
+            No Liability for Losses
+            Neither the Platform Admins nor the Users are responsible for any financial losses arising from decisions made based on platform content.
+            Admins will not be responsible for any financial losses incurred from transactions or dealings with any member providing buy/sell calls or claiming higher returns.
+            By clicking "I Agree", you acknowledge that you have read, understood, and accept all terms and risks mentioned above.
+    """, unsafe_allow_html=True)
+    
+    # Center the button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("✅ I Agree and Accept the Risks", type="primary", use_container_width=True):
+            st.session_state.disclaimer_accepted = True
+            st.rerun()
+    
+    st.stop()  # Prevent rest of app from loading
+
+# --- REST OF YOUR CODE CONTINUES BELOW ---
+
 try:
     nltk.data.find('vader_lexicon')
 except LookupError:

@@ -1,8 +1,11 @@
 
 streamlit
 yfinance
-nltk
+pandas
 plotly
+nltk
 GoogleNews
+numpy
+xlsxwriter
+requests
 beautifulsoup4
-lxml

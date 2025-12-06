@@ -703,11 +703,14 @@ def main():
                 # fig_gauge definition
                 st.markdown("<h3 style='text-align: center; margin-bottom: 0px;'>😨 Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
                 
+                # Manual Delta Calculation
+                delta_val = hybrid_score - 50
+                delta_color = "#00E676" if delta_val >= 0 else "#FF1744"
+                delta_sym = "▲" if delta_val >= 0 else "▼"
+                
                 fig_gauge = go.Figure(go.Indicator(
-                    mode = "gauge+number+delta",
+                    mode = "gauge",
                     value = hybrid_score,
-                    delta = {'reference': 50, 'increasing': {'color': "#00E676"}, 'decreasing': {'color': "#FF1744"}},
-                    number = {'font': {'size': 40}},
                     gauge = {
                         'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "white", 'tickvals': []},
                         'bar': {'color': "#2E303E", 'thickness': 0.15},
@@ -736,6 +739,15 @@ def main():
                     margin=dict(t=10, b=10, l=40, r=40), 
                     paper_bgcolor='rgba(0,0,0,0)', 
                     font={'color': "white"}
+                )
+                
+                # Manual Annotation for precise centering of Value & Delta
+                fig_gauge.add_annotation(
+                    x=0.5, y=0.35, 
+                    text=f"<span style='font-size:40px; font-weight:bold'>{hybrid_score:.1f}</span><br><span style='font-size:18px; color:{delta_color}'>{delta_sym} {abs(delta_val):.1f}</span>",
+                    showarrow=False,
+                    xanchor='center',
+                    yanchor='middle'
                 )
                 
                 st.plotly_chart(fig_gauge, use_container_width=True, config={'displayModeBar': False})

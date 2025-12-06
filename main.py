@@ -401,6 +401,15 @@ def get_sentiment_score(news_items):
     
     return total / len(news_items) if news_items else 0
 
+def calculate_rsi(data, period=14):
+    """Calculate Relative Strength Index (RSI)"""
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.iloc[-1]  # Return latest RSI value
+
 def categorize_topics(news_items):
     """Feature 1: Tags news with specific topics"""
     tags = []
@@ -652,26 +661,100 @@ def main():
 
         # TAB 2: SENTIMENT DEEP DIVE (UPDATED)
         with tab2:
-            # Topic Modeling Feature
-            topic_counts = categorize_topics(news)
+            # 1. Calculate Hybrid Fear & Greed Score
+            # Technical Component: RSI
+            rsi_val = 50 # Default Neutral
+            if df is not None and not df.empty:
+                try: rsi_val = calculate_rsi(df['Close'])
+                except: pass
             
-            c_narrative, c_ripple = st.columns([1, 1])
+            # Sentiment Component: Normalized to 0-100 (Score is -1 to 1)
+            # -1 -> 0, 0 -> 50, +1 -> 100
+            sentiment_norm = (sent_score + 1) * 50
             
-            with c_narrative:
-                st.subheader("🗣️ Narrative Analysis (The 'Why')")
+            # Hybrid Score (Average of Technical & Narrative)
+            hybrid_score = (rsi_val + sentiment_norm) / 2
+            
+            # 2. Layout - Row 1: Narrative & Supply Chain
+            r1c1, r1c2 = st.columns([1, 1], gap="medium")
+            
+            with r1c1:
+                st.subheader("🗣️ Narrative Analysis")
+                topic_counts = categorize_topics(news)
                 if topic_counts:
                     df_topics = pd.DataFrame.from_dict(topic_counts, orient='index', columns=['Count']).reset_index()
                     fig_topic = px.pie(df_topics, values='Count', names='index', hole=0.5, 
                                        color_discrete_sequence=px.colors.sequential.RdBu)
-                    fig_topic.update_layout(height=300, margin=dict(t=0,b=0))
+                    fig_topic.update_layout(height=300, margin=dict(t=0,b=20, l=0, r=0), 
+                                            legend=dict(orientation="h", y=-0.1))
                     st.plotly_chart(fig_topic, use_container_width=True)
                 else:
-                    st.info("Not enough data to determine topics.")
-
-            with c_ripple:
+                    st.info("Not enough data.")
+            
+            with r1c2:
                 # Supply Chain Feature
                 sector = info.get('sector', 'Technology') if info else 'Technology'
                 render_ripple_effects(sector)
+
+            # 3. Layout - Row 2: Gauge & Explanation
+            r2c1, r2c2 = st.columns([1, 1], gap="medium")
+            
+            with r2c1:
+                # fig_gauge definition
+                st.markdown("<h3 style='text-align: center; margin-bottom: 0px;'>😨 Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
+                
+                fig_gauge = go.Figure(go.Indicator(
+                    mode = "gauge+number+delta",
+                    value = hybrid_score,
+                    delta = {'reference': 50, 'increasing': {'color': "#00E676"}, 'decreasing': {'color': "#FF1744"}},
+                    number = {'font': {'size': 40}},
+                    gauge = {
+                        'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "white", 'tickvals': []},
+                        'bar': {'color': "#2E303E", 'thickness': 0.15},
+                        'bgcolor': "white",
+                        'borderwidth': 2,
+                        'bordercolor': "#2E303E",
+                        'steps': [
+                            {'range': [0, 25], 'color': '#FF1744'},   # Extreme Fear
+                            {'range': [25, 45], 'color': '#FF9100'},  # Fear
+                            {'range': [45, 55], 'color': '#B0BEC5'},  # Neutral
+                            {'range': [55, 75], 'color': '#00E676'},  # Greed
+                            {'range': [75, 100], 'color': '#00C853'}  # Extreme Greed
+                        ],
+                    }
+                ))
+                
+                # Dynamic Label
+                if hybrid_score < 25: state_label = "EXTREME FEAR"
+                elif hybrid_score < 45: state_label = "FEAR"
+                elif hybrid_score < 55: state_label = "NEUTRAL"
+                elif hybrid_score < 75: state_label = "GREED"
+                else: state_label = "EXTREME GREED"
+                
+                fig_gauge.update_layout(
+                    height=240, 
+                    margin=dict(t=10, b=10, l=40, r=40), 
+                    paper_bgcolor='rgba(0,0,0,0)', 
+                    font={'color': "white"}
+                )
+                
+                st.plotly_chart(fig_gauge, use_container_width=True, config={'displayModeBar': False})
+                st.markdown(f"<h3 style='text-align: center; color: white; margin-top: -30px;'>{state_label}</h3>", unsafe_allow_html=True)
+                
+            with r2c2:
+                st.subheader("ℹ️ Calculation Logic")
+                st.markdown(f"""
+                <div style="background-color: #262730; padding: 20px; border-radius: 10px; border: 1px solid #4F4F4F;">
+                    <h4 style="margin-top:0;">Hybrid Score = (RSI + Sentiment) / 2</h4>
+                    <p>The <b>Market Emotion Index</b> combines two powerful signals:</p>
+                    <ul>
+                        <li><b>📈 Technical RSI ({rsi_val:.1f}):</b> Measures price momentum. <br><small>(Overbought > 70, Oversold < 30)</small></li>
+                        <li><b>🗣️ News Sentiment ({sentiment_norm:.1f}):</b> AI analysis of headlines. <br><small>(Converted to 0-100 scale)</small></li>
+                    </ul>
+                    <hr style="margin: 10px 0;">
+                    <p style="font-size: 0.9rem; color: #A0A0A0;">This holistic approach filters out conflicting signals. A low price but high sentiment might indicate a buying opportunity (Greed), while high price and bad news signals a crash (Fear).</p>
+                </div>
+                """, unsafe_allow_html=True)
 
         # TAB 3: NEWS & PEERS
         with tab3:

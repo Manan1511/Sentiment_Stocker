@@ -1,4 +1,3 @@
-
 streamlit
 yfinance
 pandas
@@ -9,3 +8,4 @@ numpy
 xlsxwriter
 requests
 beautifulsoup4
+finnhub-python

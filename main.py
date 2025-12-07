@@ -108,9 +108,16 @@ sia = SentimentIntensityAnalyzer()
 # Initialize Finnhub Client
 # Get your free API key from: https://finnhub.io/register
 # RECOMMENDED: Move this to st.secrets["FINNHUB_API_KEY"] for security
-FINNHUB_API_KEY = "d4ps1npr01qjpnb18tdgd4ps1npr01qjpnb18te0"
-finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
+# main.py
 
+# Check if key is in secrets, otherwise fallback (or handle error)
+if "FINNHUB_API_KEY" in st.secrets:
+    FINNHUB_API_KEY = st.secrets["FINNHUB_API_KEY"]
+else:
+    # Fallback for local testing if you don't have secrets.toml set up
+    FINNHUB_API_KEY = "d4ps1npr01qjpnb18tdgd4ps1npr01qjpnb18te0" 
+
+finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 # --- 2. DATA CONSTANTS ---
 
 COMPETITORS = {

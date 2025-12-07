@@ -1,4 +1,3 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -108,6 +107,7 @@ sia = SentimentIntensityAnalyzer()
 
 # Initialize Finnhub Client
 # Get your free API key from: https://finnhub.io/register
+# RECOMMENDED: Move this to st.secrets["FINNHUB_API_KEY"] for security
 FINNHUB_API_KEY = "d4ps1npr01qjpnb18tdgd4ps1npr01qjpnb18te0"
 finnhub_client = finnhub.Client(api_key=FINNHUB_API_KEY)
 
@@ -145,7 +145,7 @@ DEPENDENCY_TICKERS = {
     'Natural Gas': 'UNG', 'OPEC': 'XLE', 'Interest Rates': '^TNX',
     'Housing Market': 'XHB', 'Biotech': 'IBB', 'Insurance': 'KIE',
     'Coal': 'ARCH', 'Global Markets': '^GSPC', 'Oil': 'USO',
-    'Iron Ore': 'RIO', 'Shipping': 'BOAT' # BOAT is generic, maybe BDRY? Let's use BDRY or just RIO/VALE for Iron Ore
+    'Iron Ore': 'RIO', 'Shipping': 'BDRY' 
 }
 
 # Feature 1: Keywords for Topic Modeling
@@ -374,6 +374,7 @@ def fetch_news_data(query, limit=15):
             for item in results[:limit]:
                 news_data.append({
                     'title': item['title'],
+                    'link': item['title'],
                     'link': clean_google_link(item.get('link', '#')),
                     'source': item.get('media', 'Google News'),
                     'date': item.get('date', 'Recent')
@@ -410,13 +411,18 @@ def calculate_rsi(data, period=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi.iloc[-1]  # Return latest RSI value
 
-def categorize_topics(news_items):
+# --- MODIFIED: accept custom keywords dictionary ---
+def categorize_topics(news_items, keywords_dict=None):
     """Feature 1: Tags news with specific topics"""
+    # Use default if no custom provided
+    if keywords_dict is None:
+        keywords_dict = TOPIC_KEYWORDS
+
     tags = []
     for n in news_items:
         title = n['title'].lower()
         found_tag = False
-        for category, keywords in TOPIC_KEYWORDS.items():
+        for category, keywords in keywords_dict.items():
             if any(k in title for k in keywords):
                 tags.append(category)
                 found_tag = True
@@ -526,32 +532,81 @@ def plot_advanced_timeline(df, current_sentiment, period, currency_symbol='$'):
     )
     return fig
 
-# --- 6. MARKET MAP ---
+# --- 6. MARKET MAP (UPDATED) ---
 def render_heatmap():
-    st.markdown("### 🌍 Global Market Sentiment")
-    # Demo Data for Visual
-    data = [
-        {'Ticker': 'AAPL', 'Sector': 'Tech', 'Vol': 100, 'Score': 0.6},
-        {'Ticker': 'MSFT', 'Sector': 'Tech', 'Vol': 90, 'Score': 0.4},
-        {'Ticker': 'NVDA', 'Sector': 'Tech', 'Vol': 120, 'Score': 0.8},
-        {'Ticker': 'GOOGL', 'Sector': 'Tech', 'Vol': 80, 'Score': -0.2},
-        {'Ticker': 'TSLA', 'Sector': 'Auto', 'Vol': 110, 'Score': -0.4},
-        {'Ticker': 'AMZN', 'Sector': 'Tech', 'Vol': 95, 'Score': 0.2},
-        {'Ticker': 'XOM', 'Sector': 'Energy', 'Vol': 85, 'Score': 0.7},
-    ]
-    df = pd.DataFrame(data)
+    st.markdown("### 🌍 Real-Time Global Market Heatmap")
     
-    fig = px.treemap(df, path=[px.Constant("Global Market"), 'Sector', 'Ticker'], values='Vol', color='Score',
-                     color_continuous_scale='RdYlGn', range_color=[-1, 1])
+    # Define Sector Leaders (Expandable)
+    SECTOR_LEADERS = {
+        'Technology': ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMD', 'ORCL', 'CRM'],
+        'Financial': ['JPM', 'BAC', 'V', 'MA', 'GS', 'MS', 'WFC'],
+        'Healthcare': ['JNJ', 'UNH', 'LLY', 'PFE', 'MRK', 'ABBV'],
+        'Consumer': ['AMZN', 'TSLA', 'WMT', 'HD', 'MCD', 'NKE', 'KO'],
+        'Energy': ['XOM', 'CVX', 'COP', 'SLB', 'EOG'],
+        'Industrial': ['CAT', 'DE', 'BA', 'GE', 'HON', 'UPS']
+    }
     
-    fig.update_layout(height=600, margin=dict(t=0, l=0, r=0, b=0))
-    st.plotly_chart(fig, use_container_width=True)
+    # Flatten list for batch fetching
+    all_tickers = [ticker for sector in SECTOR_LEADERS.values() for ticker in sector]
+    
+    with st.spinner("Scanning global markets..."):
+        try:
+            # Batch fetch 2 days of data to calculate % change
+            data = yf.download(all_tickers, period="5d", progress=False)['Close']
+            
+            heatmap_data = []
+            
+            for sector, tickers in SECTOR_LEADERS.items():
+                for t in tickers:
+                    if t in data.columns:
+                        # Calculate % Change
+                        try:
+                            prices = data[t].dropna()
+                            if len(prices) >= 2:
+                                pct_change = ((prices.iloc[-1] - prices.iloc[-2]) / prices.iloc[-2]) * 100
+                                # Use volume as a proxy for size in treemap (or fetch market cap if feasible)
+                                # Here we use a fixed size 100 or abs(change) to visualize impact
+                                size_metric = abs(pct_change) + 1 
+                                
+                                heatmap_data.append({
+                                    'Ticker': t,
+                                    'Sector': sector,
+                                    'Change': pct_change,
+                                    'Size': size_metric,
+                                    'Label': f"{t}\n{pct_change:+.2f}%"
+                                })
+                        except:
+                            continue
+                            
+            if not heatmap_data:
+                st.error("Could not fetch market data. Try again later.")
+                return
+
+            df_map = pd.DataFrame(heatmap_data)
+            
+            # Create Treemap
+            fig = px.treemap(
+                df_map, 
+                path=[px.Constant("Market"), 'Sector', 'Ticker'], 
+                values='Size',
+                color='Change',
+                color_continuous_scale='RdYlGn',
+                range_color=[-3, 3], # Clamp colors between -3% and +3%
+                custom_data=['Label']
+            )
+            
+            fig.update_traces(textposition='middle center', texttemplate='%{customdata[0]}')
+            fig.update_layout(height=600, margin=dict(t=30, l=10, r=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error generating heatmap: {e}")
     return
 
 # --- 7. MAIN APP ---
 
 def main():
-    # Sidebar (Purely Control Panel)
+    # Sidebar (Control Panel + Watchlist)
     with st.sidebar:
         st.image("app_logo.png", width=50)
         st.markdown("## ⚙️ Control Panel")
@@ -564,6 +619,64 @@ def main():
             st.caption("Press Enter to update")
         else:
             ticker = None
+            
+        st.markdown("---")
+        
+        # --- PORTFOLIO WATCHLIST ---
+        st.markdown("## 📋 Watchlist")
+        if 'watchlist' not in st.session_state:
+            st.session_state.watchlist = ['AAPL', 'TSLA', 'NVDA'] # Default examples
+
+        # Input to Add Ticker
+        new_ticker = st.text_input("Add Ticker", placeholder="e.g. MSFT", key="watch_input").upper()
+        if st.button("Add +"):
+            if new_ticker and new_ticker not in st.session_state.watchlist:
+                st.session_state.watchlist.append(new_ticker)
+                st.rerun()
+
+        # Display Watchlist Items
+        if st.session_state.watchlist:
+            # Batch fetch data for watchlist to be fast
+            try:
+                watch_df = yf.download(st.session_state.watchlist, period="2d", progress=False)['Close']
+                
+                for w_ticker in st.session_state.watchlist:
+                    col1, col2, col3 = st.columns([2, 2, 1])
+                    
+                    with col1:
+                        st.markdown(f"**{w_ticker}**")
+                    
+                    with col2:
+                        try:
+                            # Handle if watch_df is DataFrame (multiple tickers) or Series (single ticker)
+                            if isinstance(watch_df, pd.DataFrame) and w_ticker in watch_df.columns:
+                                prices = watch_df[w_ticker].dropna()
+                            elif isinstance(watch_df, pd.Series) and watch_df.name == w_ticker: # Only 1 ticker
+                                 prices = watch_df
+                            elif isinstance(watch_df, pd.Series): # Fallback
+                                prices = watch_df
+                            else:
+                                prices = []
+
+                            if len(prices) >= 2:
+                                last_p = prices.iloc[-1]
+                                prev_p = prices.iloc[-2]
+                                delta = ((last_p - prev_p) / prev_p) * 100
+                                color = "#00E676" if delta >= 0 else "#FF1744"
+                                st.markdown(f"<span style='color:{color}'>{last_p:.2f} ({delta:+.1f}%)</span>", unsafe_allow_html=True)
+                            else:
+                                st.caption("No Data")
+                        except:
+                            st.caption("N/A")
+                    
+                    with col3:
+                        if st.button("✕", key=f"del_{w_ticker}", help="Remove"):
+                            st.session_state.watchlist.remove(w_ticker)
+                            st.rerun()
+            except Exception as e:
+                st.error("Watchlist Error")
+        else:
+            st.caption("Your watchlist is empty.")
             
         st.markdown("---")
         if st.button("🔄 Refresh Data"):
@@ -641,7 +754,7 @@ def main():
 
         st.write("") # Spacer
 
-        # --- TABS LAYOUT ---
+        # --- TABS LAYOUT (UPDATED) ---
         tab1, tab2, tab3, tab4 = st.tabs(["📈 Chart & Technicals", "🧠 Sentiment Lab", "📰 News & Peers", "🔗 URL Scanner"])
 
         # TAB 1: CHART
@@ -659,8 +772,51 @@ def main():
             else:
                 st.warning("No fundamental data.")
 
-        # TAB 2: SENTIMENT DEEP DIVE (UPDATED)
+        # TAB 2: SENTIMENT DEEP DIVE
         with tab2:
+            # --- NEW: PERSONALIZATION OPTION ---
+            with st.expander("✨ Personalize Narrative Analysis (Add Custom Topics)"):
+                st.caption("Define your own topics to track specific narratives in the pie chart.")
+                
+                # 1. Initialize Custom Topics in Session State
+                if 'user_topics' not in st.session_state:
+                    st.session_state.user_topics = {}
+
+                # 2. Input Form
+                c_add1, c_add2, c_add3 = st.columns([2, 3, 1])
+                with c_add1:
+                    new_topic_name = st.text_input("Topic Name", placeholder="e.g. AI Hype")
+                with c_add2:
+                    new_topic_keys = st.text_input("Keywords (comma-separated)", placeholder="gpt, llm, generative, chatbot")
+                with c_add3:
+                    st.write("") # Spacer
+                    st.write("") 
+                    if st.button("Add Topic", use_container_width=True):
+                        if new_topic_name and new_topic_keys:
+                            # Parse keywords
+                            keys_list = [k.strip().lower() for k in new_topic_keys.split(',')]
+                            st.session_state.user_topics[new_topic_name] = keys_list
+                            st.success(f"Added '{new_topic_name}'!")
+                            st.rerun()
+
+                # 3. Display & Manage Active Custom Topics
+                if st.session_state.user_topics:
+                    st.markdown("---")
+                    st.markdown("**Your Custom Topics:**")
+                    for t_name, t_keys in list(st.session_state.user_topics.items()):
+                        c_view1, c_view2 = st.columns([4, 1])
+                        with c_view1:
+                            st.markdown(f"**{t_name}**: _{', '.join(t_keys)}_")
+                        with c_view2:
+                            if st.button("🗑️", key=f"del_{t_name}"):
+                                del st.session_state.user_topics[t_name]
+                                st.rerun()
+
+            # --- MERGE TOPICS (DEFAULT + CUSTOM) ---
+            effective_topics = TOPIC_KEYWORDS.copy()
+            if 'user_topics' in st.session_state:
+                effective_topics.update(st.session_state.user_topics)
+
             # 1. Calculate Hybrid Fear & Greed Score
             # Technical Component: RSI
             rsi_val = 50 # Default Neutral
@@ -680,7 +836,8 @@ def main():
             
             with r1c1:
                 st.subheader("🗣️ Narrative Analysis")
-                topic_counts = categorize_topics(news)
+                # UPDATED: Pass effective_topics here
+                topic_counts = categorize_topics(news, keywords_dict=effective_topics)
                 if topic_counts:
                     df_topics = pd.DataFrame.from_dict(topic_counts, orient='index', columns=['Count']).reset_index()
                     fig_topic = px.pie(df_topics, values='Count', names='index', hole=0.5, 
@@ -775,9 +932,9 @@ def main():
             
             with st.expander("ℹ️ How is Source Credibility Calculated?"):
                 st.markdown("""
-                *   **🛡️ Verified (Tier 1):** Established financial institutions and major global wire services (e.g., Bloomberg, Reuters, WSJ).
-                *   **ℹ️ Standard (Tier 2):** Widely recognized market news platforms and dedicated financial blogs (e.g., MarketWatch, Benzinga).
-                *   **⚠️ Social / Unverified (Tier 3):** Social media discussions, aggregators, forums (e.g., Reddit, Twitter), or unrecognized sources.
+                * **🛡️ Verified (Tier 1):** Established financial institutions and major global wire services (e.g., Bloomberg, Reuters, WSJ).
+                * **ℹ️ Standard (Tier 2):** Widely recognized market news platforms and dedicated financial blogs (e.g., MarketWatch, Benzinga).
+                * **⚠️ Social / Unverified (Tier 3):** Social media discussions, aggregators, forums (e.g., Reddit, Twitter), or unrecognized sources.
                 """)
             
             c_peers, c_news = st.columns([1, 2])
@@ -868,8 +1025,6 @@ def main():
                         st.error(f"Failed to fetch URL (Status Code: {response.status_code})")
                 except Exception as e:
                     st.error(f"Error processing URL: {str(e)}")
-
-
 
         # Excel Export (Bottom)
         st.markdown("---")

@@ -501,16 +501,16 @@ def plot_advanced_timeline(df, current_sentiment, period, currency_symbol='$'):
     else: view_df = df
 
     # SMAs
-    df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    df['SMA_200'] = df['Close'].rolling(window=200).mean()
+    df['SMA_200'] = df['Close'].rolling(window=50).mean()
+    df['SMA_50'] = df['Close'].rolling(window=200).mean()
     plot_df = df.loc[view_df.index]
 
     fig = go.Figure()
     
     # Candlestick or Line? Let's go Line for cleanliness with SMAs
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['Close'], name='Price', line=dict(color='#667eea', width=2)))
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA_50'], name='SMA 50', line=dict(color='#FFA500', width=1, dash='dot')))
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA_200'], name='SMA 200', line=dict(color='#FF4500', width=1, dash='dot')))
+    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA_200'], name='SMA 200', line=dict(color='#FFA500', width=1, dash='dot')))
+    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA_50'], name='SMA 50', line=dict(color='#FF4500', width=1, dash='dot')))
     
     # Sentiment Overlay
     days = len(plot_df)

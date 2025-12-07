@@ -299,7 +299,7 @@ def fetch_news_data_finnhub(ticker, limit=15):
     return news_data
 
 @st.cache_data(ttl=1800)
-def fetch_news_data(query, limit=15):
+def fetch_news_data(query, limit=15, allow_fallback=True):
     """Modified to accept general query strings for Topic/Sector analysis"""
     news_data = []
     # Strategy 1: YFinance (Best for "Credible News" if query is a ticker)
@@ -338,6 +338,9 @@ def fetch_news_data(query, limit=15):
                 return news_data[:limit]
         except: pass
 
+    if not allow_fallback:
+        return news_data
+        
     # Strategy 2: Google News (Fallback & Complex Queries like "MSFT reddit")
     # UPDATED: If query contains "reddit", try direct Reddit scraping text search fallback
     if "reddit" in query.lower():
@@ -644,7 +647,11 @@ def main():
                     col1, col2, col3 = st.columns([2, 2, 1])
                     
                     with col1:
-                        st.markdown(f"**{w_ticker}**")
+                        # Fetch quick sentiment for watchlist (no fallback to avoid lag)
+                        w_news = fetch_news_data(w_ticker, limit=3, allow_fallback=False)
+                        w_score = get_sentiment_score(w_news)
+                        s_color = "#00E676" if w_score > 0.05 else "#FF1744" if w_score < -0.05 else "#A0A0A0"
+                        st.markdown(f"**{w_ticker}**<br><span style='color:{s_color}; font-size:0.8em'>{w_score:.2f}</span>", unsafe_allow_html=True)
                     
                     with col2:
                         try:
@@ -775,7 +782,7 @@ def main():
         # TAB 2: SENTIMENT DEEP DIVE
         with tab2:
             # --- NEW: PERSONALIZATION OPTION ---
-            with st.expander("✨ Personalize Narrative Analysis (Add Custom Topics)"):
+            with st.expander("Personalize Narrative Analysis (Add Custom Topics)"):
                 st.caption("Define your own topics to track specific narratives in the pie chart.")
                 
                 # 1. Initialize Custom Topics in Session State
@@ -835,7 +842,7 @@ def main():
             r1c1, r1c2 = st.columns([1, 1], gap="medium")
             
             with r1c1:
-                st.subheader("🗣️ Narrative Analysis")
+                st.subheader("Narrative Analysis")
                 # UPDATED: Pass effective_topics here
                 topic_counts = categorize_topics(news, keywords_dict=effective_topics)
                 if topic_counts:
@@ -858,7 +865,7 @@ def main():
             
             with r2c1:
                 # fig_gauge definition
-                st.markdown("<h3 style='text-align: center; margin-bottom: 0px;'>😨 Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 style='text-align: center; margin-bottom: 0px;'>Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
                 
                 # Manual Delta Calculation
                 delta_val = hybrid_score - 50
@@ -921,7 +928,7 @@ def main():
                         <li><b>🗣️ News Sentiment ({sentiment_norm:.1f}):</b> AI analysis of headlines. <br><small>(Converted to 0-100 scale)</small></li>
                     </ul>
                     <hr style="margin: 10px 0;">
-                    <p style="font-size: 0.9rem; color: #A0A0A0;">This holistic approach filters out conflicting signals. A low price but high sentiment might indicate a buying opportunity (Greed), while high price and bad news signals a crash (Fear).</p>
+                    <p style="font-size: 0.9rem; color: #A0A0A0;">This composite metric aggregates disparate signals to gauge market mood. A divergence between low price and high sentiment is classified as 'Greed', while high valuation paired with negative news contributes to a 'Fear' score, serving as a study of market psychology</p>
                 </div>
                 """, unsafe_allow_html=True)
 

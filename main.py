@@ -842,7 +842,7 @@ def main():
             r1c1, r1c2 = st.columns([1, 1], gap="medium")
             
             with r1c1:
-                st.subheader("Narrative Analysis")
+                st.markdown("<h3 style='text-align: left;'>Narrative Analysis</h3>", unsafe_allow_html=True)
                 # UPDATED: Pass effective_topics here
                 topic_counts = categorize_topics(news, keywords_dict=effective_topics)
                 if topic_counts:
@@ -865,7 +865,7 @@ def main():
             
             with r2c1:
                 # fig_gauge definition
-                st.markdown("<h3 style='text-align: center; margin-bottom: 0px;'>Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 style='text-align: left; margin-bottom: 0px;'>Hybrid Fear & Greed</h3>", unsafe_allow_html=True)
                 
                 # Manual Delta Calculation
                 delta_val = hybrid_score - 50

@@ -613,6 +613,16 @@ def main():
     with st.sidebar:
         st.image("app_logo.png", width=50)
         st.markdown("## ⚙️ Control Panel")
+        
+        # CSS Hack: Force vertical centering for all column layouts in sidebar
+        st.markdown("""
+        <style>
+        [data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+            align-items: center !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         mode = st.radio("View Mode", ["🔍 Analysis", "🗺️ Market Heatmap"], index=0)
         st.markdown("---")
         
@@ -644,10 +654,11 @@ def main():
                 watch_df = yf.download(st.session_state.watchlist, period="2d", progress=False)['Close']
                 
                 for w_ticker in st.session_state.watchlist:
+                    # Native vertical_alignment might fail, rely on CSS hack above
                     col1, col2, col3 = st.columns([2, 2, 1])
                     
                     with col1:
-                        # Fetch quick sentiment for watchlist (no fallback to avoid lag)
+                        # Fetch quick sentiment for watchlist
                         w_news = fetch_news_data(w_ticker, limit=3, allow_fallback=False)
                         w_score = get_sentiment_score(w_news)
                         s_color = "#00E676" if w_score > 0.05 else "#FF1744" if w_score < -0.05 else "#A0A0A0"
